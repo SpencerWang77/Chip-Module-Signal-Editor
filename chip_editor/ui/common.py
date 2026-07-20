@@ -9,6 +9,7 @@ from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import (
     QAbstractButton,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -172,6 +173,8 @@ class FieldLabel(QLabel):
         super().__init__(register_field.name)
         background, foreground = FIELD_COLORS[color_index % len(FIELD_COLORS)]
         self.setAlignment(Qt.AlignCenter)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.setFixedHeight(27)
         self.setToolTip(
             f"{register_field.name}\nBits {register_field.start_bit}–{register_field.end_bit}\n"
@@ -191,33 +194,27 @@ class BitGrid(QWidget):
     def __init__(self, register: RegisterByte) -> None:
         super().__init__()
         self.buttons: list[BitButton] = []
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(7)
+        self.field_labels: list[tuple[RegisterField, FieldLabel]] = []
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(4)
+        grid.setVerticalSpacing(4)
+        for column in range(BIT_COLUMN_COUNT):
+            grid.setColumnStretch(column, 1)
+            grid.setColumnMinimumWidth(column, 42)
 
-        bit_row = QHBoxLayout()
-        bit_row.setContentsMargins(0, 0, 0, 0)
-        bit_row.setSpacing(8)
         for display_index, bit_number in enumerate(range(7, -1, -1)):
-            bit_cell = QVBoxLayout()
-            bit_cell.setContentsMargins(0, 0, 0, 0)
-            bit_cell.setSpacing(1)
             number = QLabel(str(bit_number))
             number.setObjectName("bitNumber")
             number.setAlignment(Qt.AlignCenter)
-            bit_cell.addWidget(number)
+            grid.addWidget(number, 0, display_index)
             button = BitButton(bit_number, bool(register.bits[display_index]))
             button.toggled.connect(
                 lambda checked, index=display_index: self.bitChanged.emit(index, checked)
             )
             self.buttons.append(button)
-            bit_cell.addWidget(button, 0, Qt.AlignHCenter)
-            bit_row.addLayout(bit_cell, 1)
-        layout.addLayout(bit_row)
+            grid.addWidget(button, 1, display_index, Qt.AlignHCenter)
 
-        field_row = QHBoxLayout()
-        field_row.setContentsMargins(0, 0, 0, 0)
-        field_row.setSpacing(4)
         field_by_start = {7 - item.start_bit: item for item in register.fields}
         position = 0
         color_index = 0
@@ -225,7 +222,9 @@ class BitGrid(QWidget):
             register_field = field_by_start.get(position)
             if register_field:
                 width = register_field.width
-                field_row.addWidget(FieldLabel(register_field, color_index), width)
+                field_label = FieldLabel(register_field, color_index)
+                self.field_labels.append((register_field, field_label))
+                grid.addWidget(field_label, 2, position, 1, width)
                 color_index += 1
                 position += width
             else:
@@ -237,10 +236,11 @@ class BitGrid(QWidget):
                 reserved = QLabel("reserved" if width > 1 else "·")
                 reserved.setObjectName("reservedField")
                 reserved.setAlignment(Qt.AlignCenter)
+                reserved.setMinimumWidth(0)
+                reserved.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
                 reserved.setFixedHeight(27)
-                field_row.addWidget(reserved, width)
+                grid.addWidget(reserved, 2, position, 1, width)
                 position += width
-        layout.addLayout(field_row)
 
     def set_bits(self, bits: Iterable[int]) -> None:
         for button, value in zip(self.buttons, bits):

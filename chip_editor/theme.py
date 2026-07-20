@@ -18,15 +18,6 @@ QMainWindow, QStackedWidget, #pageBody, #editorBody, #rowContainer {
     letter-spacing: -0.4px;
     color: #112C36;
 }
-#editionPill {
-    background: #E7F7F1;
-    color: #168063;
-    border-radius: 9px;
-    padding: 4px 9px;
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 1px;
-}
 #stepLabel, #headerFile {
     color: #71858B;
     font-size: 11px;

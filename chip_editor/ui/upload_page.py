@@ -52,7 +52,7 @@ class UploadPage(QWidget):
         eyebrow.setObjectName("eyebrow")
         content_layout.addWidget(eyebrow)
 
-        title = QLabel("Bring your chip map into focus.")
+        title = QLabel("Upload workbook to start editing signals.")
         title.setObjectName("pageTitle")
         content_layout.addWidget(title)
 
@@ -126,9 +126,6 @@ class UploadPage(QWidget):
         brand = QLabel(APP_NAME)
         brand.setObjectName("brandName")
         layout.addWidget(brand)
-        edition = QLabel("REGISTER STUDIO")
-        edition.setObjectName("editionPill")
-        layout.addWidget(edition)
         layout.addStretch()
         step = QLabel("01  IMPORT   /   02  EDIT")
         step.setObjectName("stepLabel")
