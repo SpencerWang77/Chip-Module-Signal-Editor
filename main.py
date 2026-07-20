@@ -1,24 +1,31 @@
-"""Chip Module Signal Editor — PyQt5 application entry point."""
+"""Application entry point for Chip Module Editor for ESWIN."""
 
 import sys
+from pathlib import Path
 
-from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import QApplication
 
-
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Chip Module Signal Editor")
-        self.resize(1000, 700)
-
-        placeholder = QLabel("Chip Module Signal Editor", self)
-        placeholder.setStyleSheet("font-size: 20px;")
-        self.setCentralWidget(placeholder)
+from chip_editor.constants import APP_NAME
+from chip_editor.theme import STYLE_SHEET
+from chip_editor.window import MainWindow
 
 
-def main():
+def main() -> None:
+    """Configure Qt and launch the desktop application."""
+
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)
-    window = MainWindow()
+    app.setApplicationName(APP_NAME)
+    app.setStyle("Fusion")
+    base_font = QFont("Avenir Next")
+    base_font.setPointSize(10)
+    app.setFont(base_font)
+    app.setStyleSheet(STYLE_SHEET)
+
+    window = MainWindow(Path(__file__).resolve().parent)
     window.show()
     sys.exit(app.exec_())
 

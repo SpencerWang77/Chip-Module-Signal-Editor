@@ -1,11 +1,14 @@
-# Chip Module Signal Editor
+# Chip Module Editor for ESWIN
 
-A desktop application for editing chip module signals, built with PyQt5.
+A polished PyQt5 desktop application for importing, viewing, and editing ESWIN chip-module register maps from Excel workbooks.
+
+The import expects a `3.register` worksheet with `HEX_BYTE_ADDR`, `REG_NAME`, and an eight-column `REG_FIELD` area ordered from bit 7 to bit 0. Merged cells in `REG_FIELD` become visible multi-bit fields in the editor.
 
 ## Requirements
 
 - Python 3.10+
 - PyQt5
+- openpyxl
 
 ## Setup
 
@@ -18,3 +21,25 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
+
+## Workflow
+
+1. Drop an `.xlsx` workbook onto the upload screen or select `top_signal.xlsx` as the included sample.
+2. Review and toggle any of the eight bit circles for each byte.
+3. Search by address, register, or field and optionally show edited bytes only.
+4. Export a copy of the workbook. The copy includes an `EDITED_HEX_VALUE` column and updates defaults for any edited named fields.
+
+## Architecture
+
+The frontend uses **PyQt5 Qt Widgets**. It is a native desktop UI rather than a browser-based frontend.
+
+- `main.py` — lightweight application entry point
+- `chip_editor/models.py` — register and workbook data models
+- `chip_editor/workbook_io.py` — Excel parsing, validation, and export
+- `chip_editor/theme.py` — central Qt stylesheet
+- `chip_editor/window.py` — main window and page navigation
+- `chip_editor/ui/common.py` — reusable bit, field, drag/drop, and register widgets
+- `chip_editor/ui/upload_page.py` — workbook import screen
+- `chip_editor/ui/editor_page.py` — interactive register editor
+
+`openpyxl` handles the Excel workbook data layer.
