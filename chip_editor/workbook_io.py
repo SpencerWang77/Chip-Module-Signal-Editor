@@ -155,6 +155,7 @@ def parse_register_workbook(path: Path) -> WorkbookData:
             fields.append(
                 RegisterField(
                     name=field_name,
+                    original_name=field_name,
                     original_text=original_text,
                     start_column=span_start,
                     end_column=span_end,
@@ -210,20 +211,25 @@ def export_workbook(data: WorkbookData, destination: Path) -> None:
 
     for register in data.registers:
         worksheet.cell(register.worksheet_row, output_column, f"0x{register.value:02X}")
-        if not register.is_modified:
-            continue
         for register_field in register.fields:
             display_start = 7 - register_field.start_bit
             display_end = 7 - register_field.end_bit
             segment = register.bits[display_start : display_end + 1]
             original_segment = register.original_bits[display_start : display_end + 1]
-            if tuple(segment) == tuple(original_segment):
+            segment_changed = tuple(segment) != tuple(original_segment)
+            name_changed = register_field.is_modified
+            if not segment_changed and not name_changed:
                 continue
             new_value = RegisterByte.value_from_bits(segment)
+            if segment_changed:
+                output_text = f"{register_field.name}[0x{new_value:X}]"
+            else:
+                original_suffix = register_field.original_text[len(register_field.original_name) :]
+                output_text = f"{register_field.name}{original_suffix}"
             worksheet.cell(
                 register.worksheet_row,
                 register_field.start_column,
-                f"{register_field.name}[0x{new_value:X}]",
+                output_text,
             )
 
     workbook.save(destination)

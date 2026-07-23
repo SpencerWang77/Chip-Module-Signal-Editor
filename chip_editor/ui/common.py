@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -166,35 +167,63 @@ FIELD_COLORS = (
 )
 
 
-class FieldLabel(QLabel):
-    """A colored field chip aligned below the bits it occupies."""
+class FieldNameEditor(QLineEdit):
+    """An editable field name aligned below the bits it occupies."""
+
+    renamed = pyqtSignal(object, str, str)
 
     def __init__(self, register_field: RegisterField, color_index: int) -> None:
         super().__init__(register_field.name)
+        self.register_field = register_field
         background, foreground = FIELD_COLORS[color_index % len(FIELD_COLORS)]
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.setFixedHeight(27)
-        self.setToolTip(
-            f"{register_field.name}\nBits {register_field.start_bit}–{register_field.end_bit}\n"
-            f"Default 0x{register_field.default_value:X}"
-        )
+        self._update_tooltip()
         self.setStyleSheet(
-            f"background: {background}; color: {foreground}; border-radius: 6px; "
-            "padding: 0 6px; font-size: 10px; font-weight: 600;"
+            "QLineEdit {"
+            f"background: {background}; color: {foreground}; border: 1px solid transparent; "
+            "border-radius: 6px; padding: 0 5px; font-size: 10px; font-weight: 600;"
+            "}"
+            f"QLineEdit:focus {{ background: #FFFFFF; border-color: {foreground}; }}"
         )
+        self.editingFinished.connect(self._commit_name)
+
+    def _update_tooltip(self) -> None:
+        self.setToolTip(
+            f"{self.register_field.name}\nBits {self.register_field.start_bit}–"
+            f"{self.register_field.end_bit}\nClick to rename this field"
+        )
+
+    def _commit_name(self) -> None:
+        new_name = self.text().strip()
+        old_name = self.register_field.name
+        if not new_name:
+            self.setText(old_name)
+            return
+        if new_name == old_name:
+            return
+        self.register_field.name = new_name
+        self.setText(new_name)
+        self._update_tooltip()
+        self.renamed.emit(self.register_field, old_name, new_name)
+
+    def sync_from_model(self) -> None:
+        self.setText(self.register_field.name)
+        self._update_tooltip()
 
 
 class BitGrid(QWidget):
     """Eight bit circles and an aligned field map."""
 
     bitChanged = pyqtSignal(int, bool)
+    fieldNameChanged = pyqtSignal(object, str, str)
 
     def __init__(self, register: RegisterByte) -> None:
         super().__init__()
         self.buttons: list[BitButton] = []
-        self.field_labels: list[tuple[RegisterField, FieldLabel]] = []
+        self.field_editors: list[tuple[RegisterField, FieldNameEditor]] = []
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(4)
@@ -222,9 +251,10 @@ class BitGrid(QWidget):
             register_field = field_by_start.get(position)
             if register_field:
                 width = register_field.width
-                field_label = FieldLabel(register_field, color_index)
-                self.field_labels.append((register_field, field_label))
-                grid.addWidget(field_label, 2, position, 1, width)
+                field_editor = FieldNameEditor(register_field, color_index)
+                field_editor.renamed.connect(self.fieldNameChanged)
+                self.field_editors.append((register_field, field_editor))
+                grid.addWidget(field_editor, 2, position, 1, width)
                 color_index += 1
                 position += width
             else:
@@ -249,13 +279,18 @@ class BitGrid(QWidget):
             button.blockSignals(False)
             button.update()
 
+    def sync_field_names(self) -> None:
+        for _, editor in self.field_editors:
+            editor.sync_from_model()
+
 
 class RegisterRow(QFrame):
     """One address row containing identity, bit controls, fields, and values."""
 
     changed = pyqtSignal(object)
+    activity = pyqtSignal(str)
 
-    def __init__(self, register: RegisterByte) -> None:
+    def __init__(self, register: RegisterByte, module_name: str = "") -> None:
         super().__init__()
         self.register = register
         self.setObjectName("registerRow")
@@ -267,7 +302,7 @@ class RegisterRow(QFrame):
         layout.setSpacing(24)
 
         identity = QWidget()
-        identity.setFixedWidth(206)
+        identity.setFixedWidth(170)
         identity_layout = QVBoxLayout(identity)
         identity_layout.setContentsMargins(0, 0, 0, 0)
         identity_layout.setSpacing(4)
@@ -279,7 +314,7 @@ class RegisterRow(QFrame):
         name.setObjectName("registerName")
         name.setToolTip(register.reg_name)
         identity_layout.addWidget(name)
-        group = QLabel(register.reg32_name or "Ungrouped byte")
+        group = QLabel(module_name or register.reg32_name or "Ungrouped byte")
         group.setObjectName("rowSecondary")
         group.setToolTip(register.reg32_name)
         identity_layout.addWidget(group)
@@ -288,10 +323,11 @@ class RegisterRow(QFrame):
 
         self.bit_grid = BitGrid(register)
         self.bit_grid.bitChanged.connect(self._bit_changed)
+        self.bit_grid.fieldNameChanged.connect(self._field_name_changed)
         layout.addWidget(self.bit_grid, 1)
 
         summary = QWidget()
-        summary.setFixedWidth(230)
+        summary.setFixedWidth(190)
         summary_layout = QVBoxLayout(summary)
         summary_layout.setContentsMargins(0, 0, 0, 0)
         summary_layout.setSpacing(5)
@@ -299,20 +335,16 @@ class RegisterRow(QFrame):
         summary_title = QLabel(f"{field_count} FIELD{'S' if field_count != 1 else ''}")
         summary_title.setObjectName("summaryTitle")
         summary_layout.addWidget(summary_title)
-        field_lines = [f"{item.range_label}  {item.name}" for item in register.fields]
-        visible_lines = field_lines[:3]
-        if len(field_lines) > 3:
-            visible_lines.append(f"+ {len(field_lines) - 3} more fields")
-        details = QLabel("\n".join(visible_lines) if visible_lines else "No named fields · reserved byte")
-        details.setObjectName("fieldSummary")
-        details.setToolTip("\n".join(field_lines))
-        details.setWordWrap(False)
-        summary_layout.addWidget(details)
+        self.details_label = QLabel()
+        self.details_label.setObjectName("fieldSummary")
+        self.details_label.setWordWrap(False)
+        summary_layout.addWidget(self.details_label)
+        self._refresh_field_summary()
         summary_layout.addStretch()
         layout.addWidget(summary)
 
         values = QWidget()
-        values.setFixedWidth(92)
+        values.setFixedWidth(80)
         values_layout = QVBoxLayout(values)
         values_layout.setContentsMargins(0, 0, 0, 0)
         values_layout.setSpacing(4)
@@ -333,9 +365,38 @@ class RegisterRow(QFrame):
         layout.addWidget(values)
 
     def _bit_changed(self, display_index: int, checked: bool) -> None:
+        old_value = self.register.bits[display_index]
         self.register.bits[display_index] = int(checked)
         self.refresh()
         self.changed.emit(self)
+        self.activity.emit(
+            f"{self.register.hex_addr} · {self.register.reg_name}\n"
+            f"Bit {7 - display_index}: {old_value} → {int(checked)}"
+        )
+
+    def _field_name_changed(
+        self,
+        register_field: RegisterField,
+        old_name: str,
+        new_name: str,
+    ) -> None:
+        self._refresh_field_summary()
+        self.refresh()
+        self.changed.emit(self)
+        self.activity.emit(
+            f"{self.register.hex_addr} · {register_field.range_label}\n"
+            f"Renamed {old_name} → {new_name}"
+        )
+
+    def _refresh_field_summary(self) -> None:
+        field_lines = [f"{item.range_label}  {item.name}" for item in self.register.fields]
+        visible_lines = field_lines[:3]
+        if len(field_lines) > 3:
+            visible_lines.append(f"+ {len(field_lines) - 3} more fields")
+        self.details_label.setText(
+            "\n".join(visible_lines) if visible_lines else "No named fields · reserved byte"
+        )
+        self.details_label.setToolTip("\n".join(field_lines))
 
     def refresh(self) -> None:
         self.value_label.setText(f"0x{self.register.value:02X}")
@@ -345,10 +406,20 @@ class RegisterRow(QFrame):
         self.style().polish(self)
 
     def reset(self) -> None:
+        was_modified = self.register.is_modified
         self.register.bits = list(self.register.original_bits)
+        for register_field in self.register.fields:
+            register_field.name = register_field.original_name
         self.bit_grid.set_bits(self.register.bits)
+        self.bit_grid.sync_field_names()
+        self._refresh_field_summary()
         self.refresh()
         self.changed.emit(self)
+        if was_modified:
+            self.activity.emit(
+                f"{self.register.hex_addr} · {self.register.reg_name}\n"
+                "Restored workbook defaults"
+            )
 
     def matches(self, query: str) -> bool:
         if not query:

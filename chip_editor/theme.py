@@ -5,7 +5,8 @@ STYLE_SHEET = """
     font-family: "Avenir Next", "Segoe UI", sans-serif;
     color: #17343D;
 }
-QMainWindow, QStackedWidget, #pageBody, #editorBody, #rowContainer {
+QMainWindow, QStackedWidget, #pageBody, #editorBody, #rowContainer,
+#moduleContainer, #editorContentStack {
     background: #F4F6F3;
 }
 #topBar {
@@ -181,6 +182,97 @@ QPushButton {
 #modifiedCount[active="true"] { color: #117658; background: #CDEEE2; }
 #registerScroll { background: transparent; }
 #registerScroll > QWidget > QWidget { background: transparent; }
+#moduleScroll { background: transparent; }
+#moduleScroll > QWidget > QWidget { background: transparent; }
+#moduleCard {
+    background: #FFFFFF;
+    border: 1px solid #D9E4E0;
+    border-radius: 14px;
+}
+#moduleCard:hover {
+    background: #FBFFFD;
+    border: 1px solid #65C9AA;
+}
+#moduleCard:focus { border: 2px solid #20B88A; }
+#moduleCard[modified="true"] {
+    background: #F8FFFC;
+    border: 1px solid #38BB93;
+}
+#moduleCard[modified="true"] #moduleEditCount {
+    color: #117658;
+    background: #DDF4EB;
+}
+#moduleType {
+    color: #20A781;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 1.1px;
+}
+#moduleName {
+    color: #15363F;
+    font-size: 13px;
+    font-weight: 750;
+}
+#moduleAddress {
+    color: #6B8085;
+    font-size: 9px;
+    font-family: "SF Mono", "Consolas", monospace;
+}
+#moduleEditCount {
+    color: #708589;
+    background: #EEF3F1;
+    border-radius: 7px;
+    padding: 3px 7px;
+    font-size: 8px;
+    font-weight: 750;
+    letter-spacing: 0.7px;
+}
+#changeLogPanel {
+    background: #FFFFFF;
+    border: 1px solid #D9E4E0;
+    border-radius: 13px;
+}
+#logTitle {
+    color: #173E48;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+}
+#logCount { color: #849599; font-size: 9px; }
+#logClearButton {
+    min-height: 25px;
+    padding: 0 7px;
+    background: transparent;
+    border: none;
+    color: #168063;
+    font-size: 10px;
+}
+#logClearButton:hover { background: #E8F6F1; }
+#logEmpty {
+    color: #94A3A6;
+    background: #F5F7F6;
+    border: 1px dashed #CBD7D3;
+    border-radius: 9px;
+    padding: 22px 15px;
+    font-size: 10px;
+}
+#logEntries {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #445D63;
+    font-size: 10px;
+}
+#logEntries::item {
+    background: #F5F8F7;
+    border: 1px solid #E3EAE8;
+    border-radius: 8px;
+    padding: 7px 9px;
+}
+#logEntries::item:selected {
+    background: #E5F5EF;
+    color: #245247;
+}
 QScrollBar:vertical {
     background: transparent;
     width: 10px;

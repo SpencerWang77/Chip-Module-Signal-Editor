@@ -12,6 +12,7 @@ class RegisterField:
     """A named field occupying one or more of the eight register bits."""
 
     name: str
+    original_name: str
     original_text: str
     start_column: int
     end_column: int
@@ -28,6 +29,10 @@ class RegisterField:
         if self.start_bit == self.end_bit:
             return f"b{self.start_bit}"
         return f"b{self.start_bit}:{self.end_bit}"
+
+    @property
+    def is_modified(self) -> bool:
+        return self.name != self.original_name
 
 
 @dataclass
@@ -64,7 +69,46 @@ class RegisterByte:
 
     @property
     def is_modified(self) -> bool:
-        return tuple(self.bits) != self.original_bits
+        return tuple(self.bits) != self.original_bits or any(
+            register_field.is_modified for register_field in self.fields
+        )
+
+
+@dataclass
+class RegisterModule:
+    """A named four-byte module beginning at a REG32_NAME row."""
+
+    name: str
+    registers: list[RegisterByte]
+
+    @property
+    def start_address(self) -> str:
+        return self.registers[0].hex_addr
+
+    @property
+    def end_address(self) -> str:
+        return self.registers[-1].hex_addr
+
+    @property
+    def modified_count(self) -> int:
+        return sum(register.is_modified for register in self.registers)
+
+    @property
+    def is_modified(self) -> bool:
+        return bool(self.modified_count)
+
+
+def build_register_modules(registers: list[RegisterByte]) -> list[RegisterModule]:
+    """Build exact four-byte modules from rows that declare REG32_NAME."""
+
+    modules: list[RegisterModule] = []
+    for index, register in enumerate(registers):
+        if not register.reg32_name:
+            continue
+        module_registers = registers[index : index + 4]
+        if module_registers:
+            modules.append(RegisterModule(register.reg32_name, module_registers))
+    return modules
 
 
 @dataclass

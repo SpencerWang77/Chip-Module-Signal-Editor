@@ -25,9 +25,10 @@ python main.py
 ## Workflow
 
 1. Drop an `.xlsx` workbook onto the upload screen or select `top_signal.xlsx` as the included sample.
-2. Review and toggle any of the eight bit circles for each byte.
-3. Search by address, register, or field and optionally show edited bytes only.
-4. Export a copy of the workbook. The copy includes an `EDITED_HEX_VALUE` column and updates defaults for any edited named fields.
+2. Choose a square module card to open its four-byte register editor.
+3. Toggle bit circles or edit the field-name labels directly below them.
+4. Review every bit and field-name change in the session log on the right.
+5. Search modules, optionally show edited modules only, and export a workbook copy. The copy includes an `EDITED_HEX_VALUE` column and updates edited field names and defaults.
 
 ## Architecture
 
@@ -41,5 +42,7 @@ The frontend uses **PyQt5 Qt Widgets**. It is a native desktop UI rather than a 
 - `chip_editor/ui/common.py` — reusable bit, field, drag/drop, and register widgets
 - `chip_editor/ui/upload_page.py` — workbook import screen
 - `chip_editor/ui/editor_page.py` — interactive register editor
+- `chip_editor/ui/module_gallery.py` — responsive square module cards
+- `chip_editor/ui/change_log.py` — session edit history panel
 
 `openpyxl` handles the Excel workbook data layer.

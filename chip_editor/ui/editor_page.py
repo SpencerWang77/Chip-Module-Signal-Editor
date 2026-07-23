@@ -1,4 +1,4 @@
-"""Interactive register-field editor screen."""
+"""Module gallery and interactive four-byte register editor."""
 
 from pathlib import Path
 from typing import Optional
@@ -15,26 +15,32 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ..constants import APP_NAME
-from ..models import WorkbookData
+from ..models import RegisterModule, WorkbookData, build_register_modules
 from ..workbook_io import export_workbook
+from .change_log import ChangeLogPanel
 from .common import BrandMark, RegisterRow
+from .module_gallery import ModuleGallery
 
 
 class EditorPage(QWidget):
-    """Searchable, editable view of all register bytes in a workbook."""
+    """Module-first register editor with a persistent session change log."""
 
     backRequested = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
         self.data: Optional[WorkbookData] = None
+        self.modules: list[RegisterModule] = []
         self.rows: list[RegisterRow] = []
+        self.row_by_register_id: dict[int, RegisterRow] = {}
+        self.current_module: Optional[RegisterModule] = None
 
         page = QVBoxLayout(self)
         page.setContentsMargins(0, 0, 0, 0)
@@ -44,15 +50,22 @@ class EditorPage(QWidget):
         body = QWidget()
         body.setObjectName("editorBody")
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(28, 24, 28, 28)
-        body_layout.setSpacing(16)
+        body_layout.setContentsMargins(24, 22, 24, 24)
+        body_layout.setSpacing(14)
 
         title_row = QHBoxLayout()
+        title_row.setSpacing(12)
+        self.modules_button = QPushButton("←  All modules")
+        self.modules_button.setObjectName("secondaryButton")
+        self.modules_button.clicked.connect(self.show_modules)
+        self.modules_button.hide()
+        title_row.addWidget(self.modules_button)
+
         title_box = QVBoxLayout()
         title_box.setSpacing(3)
-        editor_title = QLabel("Register map")
-        editor_title.setObjectName("editorTitle")
-        title_box.addWidget(editor_title)
+        self.editor_title = QLabel("Module map")
+        self.editor_title.setObjectName("editorTitle")
+        title_box.addWidget(self.editor_title)
         self.editor_subtitle = QLabel()
         self.editor_subtitle.setObjectName("rowSecondary")
         title_box.addWidget(self.editor_subtitle)
@@ -61,7 +74,7 @@ class EditorPage(QWidget):
 
         self.search = QLineEdit()
         self.search.setObjectName("searchInput")
-        self.search.setPlaceholderText("Search address, register, or field…")
+        self.search.setPlaceholderText("Search modules, registers, or fields…")
         self.search.setClearButtonEnabled(True)
         self.search.setFixedWidth(330)
         self.search.textChanged.connect(self.apply_filters)
@@ -96,28 +109,41 @@ class EditorPage(QWidget):
         divider.setFrameShape(QFrame.VLine)
         divider.setObjectName("overviewDivider")
         overview_layout.addWidget(divider)
-        helper = QLabel("Click a circle to toggle its bit. Field labels align to their exact bit range.")
-        helper.setObjectName("overviewText")
-        overview_layout.addWidget(helper)
+        self.overview_helper = QLabel()
+        self.overview_helper.setObjectName("overviewText")
+        overview_layout.addWidget(self.overview_helper)
         overview_layout.addStretch()
         self.modified_count = QLabel("0 EDITED")
         self.modified_count.setObjectName("modifiedCount")
         overview_layout.addWidget(self.modified_count)
         body_layout.addWidget(overview)
 
-        self.scroll = QScrollArea()
-        self.scroll.setObjectName("registerScroll")
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.NoFrame)
-        self.row_container = QWidget()
-        self.row_container.setObjectName("rowContainer")
-        self.row_layout = QVBoxLayout(self.row_container)
-        self.row_layout.setContentsMargins(0, 0, 6, 0)
-        self.row_layout.setSpacing(10)
-        self.row_layout.addStretch()
-        self.scroll.setWidget(self.row_container)
-        body_layout.addWidget(self.scroll, 1)
+        workspace = QHBoxLayout()
+        workspace.setSpacing(14)
+        self.content_stack = QStackedWidget()
+        self.content_stack.setObjectName("editorContentStack")
 
+        self.module_gallery = ModuleGallery()
+        self.module_gallery.moduleSelected.connect(self.open_module)
+        self.content_stack.addWidget(self.module_gallery)
+
+        self.detail_scroll = QScrollArea()
+        self.detail_scroll.setObjectName("registerScroll")
+        self.detail_scroll.setWidgetResizable(True)
+        self.detail_scroll.setFrameShape(QFrame.NoFrame)
+        self.detail_container = QWidget()
+        self.detail_container.setObjectName("rowContainer")
+        self.detail_layout = QVBoxLayout(self.detail_container)
+        self.detail_layout.setContentsMargins(0, 0, 6, 0)
+        self.detail_layout.setSpacing(10)
+        self.detail_layout.addStretch()
+        self.detail_scroll.setWidget(self.detail_container)
+        self.content_stack.addWidget(self.detail_scroll)
+
+        workspace.addWidget(self.content_stack, 1)
+        self.change_log = ChangeLogPanel()
+        workspace.addWidget(self.change_log)
+        body_layout.addLayout(workspace, 1)
         page.addWidget(body, 1)
 
     def _build_header(self) -> QWidget:
@@ -148,34 +174,81 @@ class EditorPage(QWidget):
         self.data = data
         self.search.clear()
         self.changed_only.setChecked(False)
-        while self.row_layout.count() > 1:
-            item = self.row_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        self.rows = []
-        for register in data.registers:
-            row = RegisterRow(register)
-            row.changed.connect(self.on_row_changed)
-            self.rows.append(row)
-            self.row_layout.insertWidget(self.row_layout.count() - 1, row)
+        self.change_log.clear()
 
+        self._remove_detail_rows()
+        for row in self.rows:
+            row.deleteLater()
+        self.rows = []
+        self.row_by_register_id = {}
+        self.modules = build_register_modules(data.registers)
+
+        for module in self.modules:
+            for register in module.registers:
+                row = RegisterRow(register, module.name)
+                row.changed.connect(self.on_row_changed)
+                row.activity.connect(self.change_log.add_entry)
+                self.rows.append(row)
+                self.row_by_register_id[id(register)] = row
+
+        self.module_gallery.load_modules(self.modules)
         self.header_file.setText(f"{data.source_path.name}   ·   {data.sheet_name}")
+        self.show_modules()
+
+    def show_modules(self) -> None:
+        self.current_module = None
+        self.content_stack.setCurrentWidget(self.module_gallery)
+        self.modules_button.hide()
+        self.search.show()
+        self.changed_only.show()
+        self.editor_title.setText("Module map")
+        mapped_bytes = sum(len(module.registers) for module in self.modules)
         self.editor_subtitle.setText(
-            f"{len(data.registers)} addressable bytes  ·  "
-            f"{data.registers[0].hex_addr}–{data.registers[-1].hex_addr}"
+            f"{len(self.modules)} named modules  ·  {mapped_bytes} mapped bytes"
         )
-        self.scroll.verticalScrollBar().setValue(0)
+        self.overview_helper.setText(
+            "Select a module card to open its four-byte register editor."
+        )
+        self.apply_filters()
+
+    def open_module(self, module: RegisterModule) -> None:
+        self.current_module = module
+        self._remove_detail_rows()
+        for register in module.registers:
+            row = self.row_by_register_id[id(register)]
+            self.detail_layout.insertWidget(self.detail_layout.count() - 1, row)
+            row.show()
+
+        self.content_stack.setCurrentWidget(self.detail_scroll)
+        self.modules_button.show()
+        self.search.hide()
+        self.changed_only.hide()
+        self.editor_title.setText(module.name)
+        self.editor_subtitle.setText(
+            f"Four-byte module  ·  {module.start_address}–{module.end_address}"
+        )
+        self.overview_helper.setText(
+            "Toggle circles to edit values, or click a field label below them to rename it."
+        )
+        self.detail_scroll.verticalScrollBar().setValue(0)
         self.update_counts()
+
+    def _remove_detail_rows(self) -> None:
+        while self.detail_layout.count() > 1:
+            item = self.detail_layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
 
     def on_row_changed(self, row: RegisterRow) -> None:
+        self.module_gallery.refresh_cards()
         self.update_counts()
-        if self.changed_only.isChecked() and not row.register.is_modified:
-            row.hide()
+        if self.current_module is None and self.changed_only.isChecked():
+            self.apply_filters()
 
     def update_counts(self) -> None:
         modified = sum(row.register.is_modified for row in self.rows)
-        visible = sum(not row.isHidden() for row in self.rows)
-        self.visible_count.setText(f"{visible} OF {len(self.rows)} BYTES")
+        if self.current_module is not None:
+            self.visible_count.setText(f"{len(self.current_module.registers)} BYTES")
         self.modified_count.setText(f"{modified} EDITED")
         self.modified_count.setProperty("active", bool(modified))
         self.modified_count.style().unpolish(self.modified_count)
@@ -183,11 +256,11 @@ class EditorPage(QWidget):
         self.reset_button.setEnabled(bool(modified))
 
     def apply_filters(self) -> None:
+        if self.current_module is not None:
+            return
         query = self.search.text().strip().lower()
-        edited_only = self.changed_only.isChecked()
-        for row in self.rows:
-            visible = row.matches(query) and (not edited_only or row.register.is_modified)
-            row.setVisible(visible)
+        visible = self.module_gallery.apply_filter(query, self.changed_only.isChecked())
+        self.visible_count.setText(f"{visible} OF {len(self.modules)} MODULES")
         self.update_counts()
 
     def reset_all(self) -> None:
@@ -195,8 +268,8 @@ class EditorPage(QWidget):
             return
         answer = QMessageBox.question(
             self,
-            "Reset edited bits?",
-            "Return every edited byte to the default value from the workbook?",
+            "Reset all edits?",
+            "Return every edited bit and field name to the workbook defaults?",
             QMessageBox.Reset | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
@@ -204,7 +277,11 @@ class EditorPage(QWidget):
             for row in self.rows:
                 if row.register.is_modified:
                     row.reset()
-            self.apply_filters()
+            self.module_gallery.refresh_cards()
+            if self.current_module is None:
+                self.apply_filters()
+            else:
+                self.update_counts()
 
     def export(self) -> None:
         if self.data is None:
@@ -224,12 +301,16 @@ class EditorPage(QWidget):
         try:
             export_workbook(self.data, Path(destination))
         except Exception as exc:
-            QMessageBox.critical(self, "Export failed", f"The workbook could not be exported.\n\n{exc}")
+            QMessageBox.critical(
+                self,
+                "Export failed",
+                f"The workbook could not be exported.\n\n{exc}",
+            )
         else:
             QMessageBox.information(
                 self,
                 "Workbook exported",
-                f"Saved {Path(destination).name}\n\nEdited field values and "
+                f"Saved {Path(destination).name}\n\nEdited field names, field values, and "
                 "EDITED_HEX_VALUE were written to the copy.",
             )
         finally:

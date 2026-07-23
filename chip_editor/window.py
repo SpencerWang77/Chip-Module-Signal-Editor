@@ -17,7 +17,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1440, 900)
-        self.setMinimumSize(1120, 720)
+        self.setMinimumSize(1280, 720)
 
         self.pages = QStackedWidget()
         self.upload_page = UploadPage(project_dir)
