@@ -19,6 +19,9 @@ class RegisterField:
     start_bit: int
     end_bit: int
     default_value: int = 0
+    description: str = ""
+    description_source_name: str = ""
+    description_source_row: int = 0
 
     @property
     def width(self) -> int:
@@ -33,6 +36,10 @@ class RegisterField:
     @property
     def is_modified(self) -> bool:
         return self.name != self.original_name
+
+    @property
+    def has_description(self) -> bool:
+        return bool(self.description)
 
 
 @dataclass
@@ -120,3 +127,12 @@ class WorkbookData:
     header_row: int
     bit_start_column: int
     registers: list[RegisterByte]
+    description_sheet_name: str = ""
+
+    @property
+    def described_field_count(self) -> int:
+        return sum(
+            register_field.has_description
+            for register in self.registers
+            for register_field in register.fields
+        )

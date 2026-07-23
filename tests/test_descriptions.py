@@ -1,0 +1,98 @@
+"""Description matching and selected-field editing tests."""
+
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from openpyxl import load_workbook
+from PyQt5.QtWidgets import QApplication
+
+from chip_editor.models import build_register_modules
+from chip_editor.ui.editor_page import EditorPage
+from chip_editor.workbook_io import export_workbook, parse_register_workbook
+
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+SAMPLE_WORKBOOK = PROJECT_DIR / "top_signal.xlsx"
+
+
+def _field(data, name: str):
+    for register in data.registers:
+        for register_field in register.fields:
+            if register_field.original_name == name:
+                return register, register_field
+    raise AssertionError(f"Could not find field {name}")
+
+
+class DescriptionParsingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.data = parse_register_workbook(SAMPLE_WORKBOOK)
+
+    def test_address_aware_suffix_match(self) -> None:
+        register, register_field = _field(self.data, "pll_inst_reg1")
+        self.assertEqual(register.hex_addr, "0x0018")
+        self.assertEqual(register_field.description_source_name, "reg1[4:0]")
+        self.assertIn("PLL-VCO", register_field.description)
+
+    def test_numbered_byte_chunks_share_wide_signal_description(self) -> None:
+        _, low_chunk = _field(self.data, "adc_inst_BOUTL_0")
+        _, high_chunk = _field(self.data, "adc_inst_BOUTL_1")
+        self.assertEqual(low_chunk.description_source_name, "BOUTL[11:0]")
+        self.assertEqual(high_chunk.description, low_chunk.description)
+
+    def test_short_global_suffix_is_not_mismatched(self) -> None:
+        _, exact_address_en = _field(self.data, "osc32m_inst_EN")
+        _, unrelated_test_en = _field(self.data, "pll_inst_test_en")
+        self.assertTrue(exact_address_en.has_description)
+        self.assertFalse(unrelated_test_en.has_description)
+
+    def test_renamed_field_is_exported_to_register_sheet(self) -> None:
+        register, register_field = _field(self.data, "pll_inst_reg1")
+        register_field.name = "pll_inst_vco_control"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            destination = Path(temporary_directory) / "edited.xlsx"
+            export_workbook(self.data, destination)
+            workbook = load_workbook(destination, data_only=False)
+            cell = workbook[self.data.sheet_name].cell(
+                register.worksheet_row,
+                register_field.start_column,
+            )
+            self.assertTrue(str(cell.value).startswith("pll_inst_vco_control"))
+
+
+class FieldDetailsUiTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.application = QApplication.instance() or QApplication([])
+
+    def test_details_panel_rename_updates_inline_model_and_log(self) -> None:
+        data = parse_register_workbook(SAMPLE_WORKBOOK)
+        page = EditorPage()
+        page.load_data(data)
+        module = next(
+            module
+            for module in build_register_modules(data.registers)
+            if module.name == "PLL_WADDR_0"
+        )
+        page.open_module(module)
+        register, register_field = _field(data, "pll_inst_reg1")
+
+        page.show_field_details(register, register_field)
+        self.assertIn("PLL-VCO", page.field_details.description.text())
+        page.field_details.name_edit.setText("pll_inst_vco_control")
+        page.field_details._request_rename()
+
+        self.assertEqual(register_field.name, "pll_inst_vco_control")
+        self.assertEqual(page.change_log.count, 1)
+        row = page.row_by_register_id[id(register)]
+        inline_names = [
+            editor.text() for _, editor in row.bit_grid.field_editors
+        ]
+        self.assertIn("pll_inst_vco_control", inline_names)
+        page.deleteLater()
+
+
+if __name__ == "__main__":
+    unittest.main()

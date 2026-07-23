@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -22,10 +22,17 @@ from PyQt5.QtWidgets import (
 )
 
 from ..constants import APP_NAME
-from ..models import RegisterModule, WorkbookData, build_register_modules
+from ..models import (
+    RegisterByte,
+    RegisterField,
+    RegisterModule,
+    WorkbookData,
+    build_register_modules,
+)
 from ..workbook_io import export_workbook
 from .change_log import ChangeLogPanel
 from .common import BrandMark, RegisterRow
+from .field_details import FieldDetailsPanel
 from .module_gallery import ModuleGallery
 
 
@@ -136,6 +143,9 @@ class EditorPage(QWidget):
         self.detail_layout = QVBoxLayout(self.detail_container)
         self.detail_layout.setContentsMargins(0, 0, 6, 0)
         self.detail_layout.setSpacing(10)
+        self.field_details = FieldDetailsPanel()
+        self.field_details.renameRequested.connect(self.rename_selected_field)
+        self.detail_layout.addWidget(self.field_details)
         self.detail_layout.addStretch()
         self.detail_scroll.setWidget(self.detail_container)
         self.content_stack.addWidget(self.detail_scroll)
@@ -188,6 +198,7 @@ class EditorPage(QWidget):
                 row = RegisterRow(register, module.name)
                 row.changed.connect(self.on_row_changed)
                 row.activity.connect(self.change_log.add_entry)
+                row.fieldSelected.connect(self.show_field_details)
                 self.rows.append(row)
                 self.row_by_register_id[id(register)] = row
 
@@ -197,6 +208,7 @@ class EditorPage(QWidget):
 
     def show_modules(self) -> None:
         self.current_module = None
+        self.field_details.clear_selection()
         self.content_stack.setCurrentWidget(self.module_gallery)
         self.modules_button.hide()
         self.search.show()
@@ -214,10 +226,14 @@ class EditorPage(QWidget):
     def open_module(self, module: RegisterModule) -> None:
         self.current_module = module
         self._remove_detail_rows()
+        details_index = self.detail_layout.indexOf(self.field_details)
         for register in module.registers:
             row = self.row_by_register_id[id(register)]
-            self.detail_layout.insertWidget(self.detail_layout.count() - 1, row)
+            self.detail_layout.insertWidget(details_index, row)
+            details_index += 1
             row.show()
+        self.field_details.clear_selection()
+        self.field_details.show()
 
         self.content_stack.setCurrentWidget(self.detail_scroll)
         self.modules_button.show()
@@ -228,19 +244,24 @@ class EditorPage(QWidget):
             f"Four-byte module  ·  {module.start_address}–{module.end_address}"
         )
         self.overview_helper.setText(
-            "Toggle circles to edit values, or click a field label below them to rename it."
+            "Toggle bits, then select a field label to read its description or rename it."
         )
         self.detail_scroll.verticalScrollBar().setValue(0)
         self.update_counts()
 
     def _remove_detail_rows(self) -> None:
-        while self.detail_layout.count() > 1:
-            item = self.detail_layout.takeAt(0)
-            if item.widget():
-                item.widget().setParent(None)
+        for row in self.rows:
+            if self.detail_layout.indexOf(row) >= 0:
+                self.detail_layout.removeWidget(row)
+                row.setParent(None)
 
     def on_row_changed(self, row: RegisterRow) -> None:
         self.module_gallery.refresh_cards()
+        if (
+            self.field_details.register is row.register
+            and self.field_details.register_field is not None
+        ):
+            self.field_details.refresh_from_model()
         self.update_counts()
         if self.current_module is None and self.changed_only.isChecked():
             self.apply_filters()
@@ -282,6 +303,34 @@ class EditorPage(QWidget):
                 self.apply_filters()
             else:
                 self.update_counts()
+            self.field_details.refresh_from_model()
+
+    def show_field_details(
+        self,
+        register: RegisterByte,
+        register_field: RegisterField,
+    ) -> None:
+        self.field_details.display(register, register_field)
+        QTimer.singleShot(
+            0,
+            lambda: self.detail_scroll.ensureWidgetVisible(
+                self.field_details,
+                0,
+                12,
+            ),
+        )
+
+    def rename_selected_field(
+        self,
+        register: RegisterByte,
+        register_field: RegisterField,
+        new_name: str,
+    ) -> None:
+        row = self.row_by_register_id.get(id(register))
+        if row is None:
+            return
+        row.rename_field(register_field, new_name)
+        self.field_details.display(register, register_field)
 
     def export(self) -> None:
         if self.data is None:

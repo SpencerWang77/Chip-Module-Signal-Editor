@@ -4,17 +4,32 @@ from __future__ import annotations
 
 import re
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 
-from .constants import BIT_COLUMN_COUNT, REGISTER_SHEET
+from .constants import BIT_COLUMN_COUNT, DESCRIPTION_SHEET, REGISTER_SHEET
 from .models import RegisterByte, RegisterField, WorkbookData
 
 
 FIELD_VALUE_RE = re.compile(r"^(.*?)(?:\[\s*(0x[0-9a-fA-F]+|\d+)\s*\])?\s*$")
+SIGNAL_RANGE_RE = re.compile(r"\s*\[[^\]]+\]\s*$")
+FIELD_CHUNK_RE = re.compile(r"_\d+$")
+HEX_ADDRESS_RE = re.compile(r"0[xX]([0-9a-fA-F]+)")
+
+
+@dataclass(frozen=True)
+class _DescriptionRecord:
+    """One signal description imported from the optional AD_AA sheet."""
+
+    worksheet_row: int
+    signal_name: str
+    normalized_suffix: str
+    description: str
+    addresses: tuple[str, ...]
 
 
 class WorkbookFormatError(ValueError):
@@ -54,6 +69,141 @@ def _parse_field_text(value: object) -> tuple[str, int]:
     return name, default
 
 
+def _description_addresses(value: object) -> tuple[str, ...]:
+    """Normalize one or several semicolon/newline-separated byte addresses."""
+
+    if value is None:
+        return ()
+    if isinstance(value, int):
+        return (_hex_address(value),)
+    return tuple(
+        f"0x{int(match, 16):04X}"
+        for match in HEX_ADDRESS_RE.findall(str(value))
+    )
+
+
+def _description_records(workbook) -> tuple[str, list[_DescriptionRecord]]:
+    """Read the optional signal-description table without making it mandatory."""
+
+    if DESCRIPTION_SHEET not in workbook.sheetnames:
+        return "", []
+
+    worksheet = workbook[DESCRIPTION_SHEET]
+    header_row: Optional[int] = None
+    header_columns: dict[str, int] = {}
+    required_headers = {"SIGNAL_NAME", "DESCRIPTION"}
+    for row_index in range(1, min(worksheet.max_row, 40) + 1):
+        found = {
+            _cell_text(worksheet.cell(row_index, column).value).upper(): column
+            for column in range(1, worksheet.max_column + 1)
+        }
+        if required_headers.issubset(found):
+            header_row = row_index
+            header_columns = found
+            break
+
+    if header_row is None:
+        return "", []
+
+    signal_column = header_columns["SIGNAL_NAME"]
+    description_column = header_columns["DESCRIPTION"]
+    address_column = header_columns.get("HEX_BYTE_ADDR")
+    records: list[_DescriptionRecord] = []
+    for row_index in range(header_row + 1, worksheet.max_row + 1):
+        signal_name = _cell_text(worksheet.cell(row_index, signal_column).value)
+        description = _cell_text(worksheet.cell(row_index, description_column).value)
+        if not signal_name or not description:
+            continue
+        normalized_suffix = SIGNAL_RANGE_RE.sub("", signal_name).strip().casefold()
+        if not normalized_suffix:
+            continue
+        address_value = (
+            worksheet.cell(row_index, address_column).value if address_column else None
+        )
+        records.append(
+            _DescriptionRecord(
+                worksheet_row=row_index,
+                signal_name=signal_name,
+                normalized_suffix=normalized_suffix,
+                description=description,
+                addresses=_description_addresses(address_value),
+            )
+        )
+    return DESCRIPTION_SHEET, records
+
+
+def _suffix_matches(field_target: str, description_suffix: str) -> bool:
+    """Require a complete underscore/dot-delimited suffix, not a substring."""
+
+    if field_target == description_suffix:
+        return True
+    if not field_target.endswith(description_suffix):
+        return False
+    boundary_index = len(field_target) - len(description_suffix) - 1
+    return boundary_index >= 0 and field_target[boundary_index] in "_."
+
+
+def _match_description(
+    field_name: str,
+    register_address: str,
+    records: list[_DescriptionRecord],
+) -> Optional[_DescriptionRecord]:
+    """Find the most specific, address-aware suffix match for a register field."""
+
+    normalized_field = field_name.strip().casefold()
+    chunkless_field = FIELD_CHUNK_RE.sub("", normalized_field)
+    targets = [(normalized_field, False)]
+    if chunkless_field != normalized_field:
+        targets.append((chunkless_field, True))
+
+    candidates: list[tuple[_DescriptionRecord, bool]] = []
+    for record in records:
+        for target, chunk_removed in targets:
+            if _suffix_matches(target, record.normalized_suffix):
+                candidates.append((record, chunk_removed))
+                break
+
+    if not candidates:
+        return None
+
+    address_matches = [
+        candidate
+        for candidate in candidates
+        if register_address in candidate[0].addresses
+    ]
+    if address_matches:
+        candidates = address_matches
+    else:
+        # Very short global suffixes such as EN are too ambiguous. A short suffix
+        # remains safe for explicitly numbered chunks such as gpio_dr_0 → DR.
+        candidates = [
+            candidate
+            for candidate in candidates
+            if len(candidate[0].normalized_suffix) >= 3 or candidate[1]
+        ]
+        if not candidates:
+            return None
+
+    longest_suffix = max(
+        len(candidate[0].normalized_suffix) for candidate in candidates
+    )
+    candidates = [
+        candidate
+        for candidate in candidates
+        if len(candidate[0].normalized_suffix) == longest_suffix
+    ]
+
+    # If equally specific global candidates disagree, omit the description rather
+    # than displaying documentation for the wrong field.
+    distinct_meanings = {
+        (candidate[0].normalized_suffix, candidate[0].description)
+        for candidate in candidates
+    }
+    if len(distinct_meanings) > 1:
+        return None
+    return min(candidates, key=lambda candidate: candidate[0].worksheet_row)[0]
+
+
 def parse_register_workbook(path: Path) -> WorkbookData:
     """Validate and parse a workbook without changing the source file."""
 
@@ -69,6 +219,7 @@ def parse_register_workbook(path: Path) -> WorkbookData:
             f"Missing the required ‘{REGISTER_SHEET}’ sheet. Found: {', '.join(workbook.sheetnames)}"
         )
 
+    description_sheet_name, description_records = _description_records(workbook)
     worksheet = workbook[REGISTER_SHEET]
     required_headers = {"HEX_BYTE_ADDR", "REG_NAME", "REG_FIELD"}
     header_row: Optional[int] = None
@@ -152,6 +303,11 @@ def parse_register_workbook(path: Path) -> WorkbookData:
             start_bit = 7 - (span_start - bit_start)
             end_bit = 7 - (span_end - bit_start)
             width = start_bit - end_bit + 1
+            description_record = _match_description(
+                field_name,
+                _hex_address(address, decimal_address),
+                description_records,
+            )
             fields.append(
                 RegisterField(
                     name=field_name,
@@ -162,6 +318,15 @@ def parse_register_workbook(path: Path) -> WorkbookData:
                     start_bit=start_bit,
                     end_bit=end_bit,
                     default_value=default_value & ((1 << width) - 1),
+                    description=(
+                        description_record.description if description_record else ""
+                    ),
+                    description_source_name=(
+                        description_record.signal_name if description_record else ""
+                    ),
+                    description_source_row=(
+                        description_record.worksheet_row if description_record else 0
+                    ),
                 )
             )
 
@@ -194,6 +359,7 @@ def parse_register_workbook(path: Path) -> WorkbookData:
         header_row=header_row,
         bit_start_column=bit_start,
         registers=registers,
+        description_sheet_name=description_sheet_name,
     )
 
 

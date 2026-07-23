@@ -171,6 +171,7 @@ class FieldNameEditor(QLineEdit):
     """An editable field name aligned below the bits it occupies."""
 
     renamed = pyqtSignal(object, str, str)
+    selected = pyqtSignal(object)
 
     def __init__(self, register_field: RegisterField, color_index: int) -> None:
         super().__init__(register_field.name)
@@ -213,12 +214,17 @@ class FieldNameEditor(QLineEdit):
         self.setText(self.register_field.name)
         self._update_tooltip()
 
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        self.selected.emit(self.register_field)
+        super().mousePressEvent(event)
+
 
 class BitGrid(QWidget):
     """Eight bit circles and an aligned field map."""
 
     bitChanged = pyqtSignal(int, bool)
     fieldNameChanged = pyqtSignal(object, str, str)
+    fieldSelected = pyqtSignal(object)
 
     def __init__(self, register: RegisterByte) -> None:
         super().__init__()
@@ -253,6 +259,7 @@ class BitGrid(QWidget):
                 width = register_field.width
                 field_editor = FieldNameEditor(register_field, color_index)
                 field_editor.renamed.connect(self.fieldNameChanged)
+                field_editor.selected.connect(self.fieldSelected)
                 self.field_editors.append((register_field, field_editor))
                 grid.addWidget(field_editor, 2, position, 1, width)
                 color_index += 1
@@ -289,6 +296,7 @@ class RegisterRow(QFrame):
 
     changed = pyqtSignal(object)
     activity = pyqtSignal(str)
+    fieldSelected = pyqtSignal(object, object)
 
     def __init__(self, register: RegisterByte, module_name: str = "") -> None:
         super().__init__()
@@ -324,6 +332,7 @@ class RegisterRow(QFrame):
         self.bit_grid = BitGrid(register)
         self.bit_grid.bitChanged.connect(self._bit_changed)
         self.bit_grid.fieldNameChanged.connect(self._field_name_changed)
+        self.bit_grid.fieldSelected.connect(self._field_selected)
         layout.addWidget(self.bit_grid, 1)
 
         summary = QWidget()
@@ -387,6 +396,21 @@ class RegisterRow(QFrame):
             f"{self.register.hex_addr} · {register_field.range_label}\n"
             f"Renamed {old_name} → {new_name}"
         )
+
+    def _field_selected(self, register_field: RegisterField) -> None:
+        self.fieldSelected.emit(self.register, register_field)
+
+    def rename_field(self, register_field: RegisterField, new_name: str) -> bool:
+        """Rename from an external details editor and synchronize inline labels."""
+
+        new_name = new_name.strip()
+        old_name = register_field.name
+        if not new_name or new_name == old_name:
+            return False
+        register_field.name = new_name
+        self.bit_grid.sync_field_names()
+        self._field_name_changed(register_field, old_name, new_name)
+        return True
 
     def _refresh_field_summary(self) -> None:
         field_lines = [f"{item.range_label}  {item.name}" for item in self.register.fields]

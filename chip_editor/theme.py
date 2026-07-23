@@ -340,5 +340,89 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     font-weight: 800;
     letter-spacing: 1px;
 }
+#fieldDetailsPanel {
+    background: #FFFFFF;
+    border: 1px solid #D8E4E0;
+    border-radius: 14px;
+}
+#fieldDetailsEyebrow, #fieldDetailsCaption {
+    color: #168063;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.25px;
+}
+#fieldDetailsTitle {
+    color: #17343D;
+    font-size: 18px;
+    font-weight: 720;
+}
+#descriptionMatchBadge {
+    color: #76898D;
+    background: #EDF1F0;
+    border-radius: 8px;
+    padding: 5px 9px;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.9px;
+}
+#descriptionMatchBadge[selected="true"] {
+    color: #91622D;
+    background: #FFF0DA;
+}
+#descriptionMatchBadge[matched="true"] {
+    color: #117658;
+    background: #DDF4EB;
+}
+#fieldDetailsNameInput {
+    min-height: 37px;
+    padding: 0 11px;
+    background: #F8FAF9;
+    border: 1px solid #CAD8D4;
+    border-radius: 8px;
+    color: #17343D;
+    font-size: 12px;
+    font-weight: 650;
+    selection-background-color: #BCEBDB;
+}
+#fieldDetailsNameInput:focus {
+    background: #FFFFFF;
+    border: 1px solid #20B88A;
+}
+#fieldDetailsNameInput:disabled {
+    color: #9AA9AB;
+    background: #F1F3F2;
+}
+#fieldDetailsApply {
+    min-height: 37px;
+    padding: 0 13px;
+    color: #FFFFFF;
+    background: #173E48;
+    border: 1px solid #173E48;
+}
+#fieldDetailsApply:hover { background: #0F3038; }
+#fieldDetailsApply:disabled {
+    color: #A6B2B3;
+    background: #EDF0EF;
+    border-color: #DCE3E1;
+}
+#fieldDetailsMetadata {
+    color: #315E64;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: "SF Mono", "Consolas", monospace;
+}
+#fieldDetailsSource {
+    color: #829397;
+    font-size: 10px;
+}
+#fieldDetailsDivider { color: #E1E8E5; }
+#fieldDescriptionText {
+    color: #405B62;
+    background: #F6F9F7;
+    border: 1px solid #E3EBE8;
+    border-radius: 9px;
+    padding: 12px 14px;
+    font-size: 11px;
+}
 QMessageBox { background: #F8FAF8; }
 """
