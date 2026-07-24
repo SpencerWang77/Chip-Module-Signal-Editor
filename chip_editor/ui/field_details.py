@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -22,6 +23,7 @@ class FieldDetailsPanel(QFrame):
     """Show AD_AA documentation and an editor for the selected field name."""
 
     renameRequested = pyqtSignal(object, object, str)
+    descriptionChangeRequested = pyqtSignal(object, object, str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -100,16 +102,26 @@ class FieldDetailsPanel(QFrame):
 
         description_box = QVBoxLayout()
         description_box.setSpacing(7)
+        description_header = QHBoxLayout()
         description_caption = QLabel("DESCRIPTION")
         description_caption.setObjectName("fieldDetailsCaption")
-        description_box.addWidget(description_caption)
-        self.description = QLabel(
-            "Select a register field to show its description from the 2.AD_AA worksheet."
+        description_header.addWidget(description_caption)
+        description_header.addStretch()
+        self.apply_description_button = QPushButton("Apply description")
+        self.apply_description_button.setObjectName("descriptionApply")
+        self.apply_description_button.setEnabled(False)
+        self.apply_description_button.clicked.connect(
+            self._request_description_change
+        )
+        description_header.addWidget(self.apply_description_button)
+        description_box.addLayout(description_header)
+        self.description = QPlainTextEdit()
+        self.description.setPlainText(
+            "Select a register field to show its description from the optional AD_AA worksheet."
         )
         self.description.setObjectName("fieldDescriptionText")
-        self.description.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.description.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.description.setWordWrap(True)
+        self.description.setEnabled(False)
+        self.description.setMinimumHeight(170)
         description_box.addWidget(self.description, 1)
         content.addLayout(description_box, 1)
         layout.addLayout(content)
@@ -122,13 +134,15 @@ class FieldDetailsPanel(QFrame):
         self.name_edit.blockSignals(False)
         self.name_edit.setEnabled(False)
         self.apply_button.setEnabled(False)
+        self.apply_description_button.setEnabled(False)
         self.metadata.setText("Address and bit range appear after selection.")
         self.source.setText(
             "Click a colored field label below the bit circles to inspect it."
         )
-        self.description.setText(
-            "Select a register field to show its description from the 2.AD_AA worksheet."
+        self.description.setPlainText(
+            "Select a register field to show its description from the optional AD_AA worksheet."
         )
+        self.description.setEnabled(False)
         self._set_match_state(False, selected=False)
 
     def display(self, register: RegisterByte, register_field: RegisterField) -> None:
@@ -152,14 +166,29 @@ class FieldDetailsPanel(QFrame):
         if register_field.has_description:
             self.source.setText(
                 f"Matched to {register_field.description_source_name} by suffix"
-                f"   ·   2.AD_AA row {register_field.description_source_row}"
+                f"   ·   {register_field.description_source_sheet} row "
+                f"{register_field.description_source_row}"
             )
-            self.description.setText(register_field.description)
+            self.description.setEnabled(True)
+            self.apply_description_button.setEnabled(True)
+            self.description.setPlainText(register_field.description)
+        elif register_field.description_source_sheet:
+            self.source.setText(
+                "No safe suffix match was found for this field in "
+                f"{register_field.description_source_sheet}."
+            )
+            self.description.setEnabled(False)
+            self.apply_description_button.setEnabled(False)
+            self.description.setPlainText(
+                "No description is available for this register field."
+            )
         else:
             self.source.setText(
-                "No safe suffix match was found for this field in 2.AD_AA."
+                "This workbook has no worksheet whose name contains “AD_AA”."
             )
-            self.description.setText(
+            self.description.setEnabled(False)
+            self.apply_description_button.setEnabled(False)
+            self.description.setPlainText(
                 "No description is available for this register field."
             )
         self._set_match_state(register_field.has_description, selected=True)
@@ -176,6 +205,21 @@ class FieldDetailsPanel(QFrame):
             return
         if new_name != self.register_field.name:
             self.renameRequested.emit(self.register, self.register_field, new_name)
+
+    def _request_description_change(self) -> None:
+        if (
+            self.register is None
+            or self.register_field is None
+            or not self.register_field.has_description
+        ):
+            return
+        new_description = self.description.toPlainText().strip()
+        if new_description != self.register_field.description:
+            self.descriptionChangeRequested.emit(
+                self.register,
+                self.register_field,
+                new_description,
+            )
 
     def _set_match_state(self, matched: bool, selected: bool) -> None:
         if not selected:

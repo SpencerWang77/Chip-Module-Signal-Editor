@@ -12,7 +12,6 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -167,10 +166,9 @@ FIELD_COLORS = (
 )
 
 
-class FieldNameEditor(QLineEdit):
-    """An editable field name aligned below the bits it occupies."""
+class FieldNameLabel(QLabel):
+    """A selection-only field name aligned below the bits it occupies."""
 
-    renamed = pyqtSignal(object, str, str)
     selected = pyqtSignal(object)
 
     def __init__(self, register_field: RegisterField, color_index: int) -> None:
@@ -178,37 +176,24 @@ class FieldNameEditor(QLineEdit):
         self.register_field = register_field
         background, foreground = FIELD_COLORS[color_index % len(FIELD_COLORS)]
         self.setAlignment(Qt.AlignCenter)
+        self.setCursor(Qt.PointingHandCursor)
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.setFixedHeight(27)
         self._update_tooltip()
         self.setStyleSheet(
-            "QLineEdit {"
+            "QLabel {"
             f"background: {background}; color: {foreground}; border: 1px solid transparent; "
             "border-radius: 6px; padding: 0 5px; font-size: 10px; font-weight: 600;"
             "}"
-            f"QLineEdit:focus {{ background: #FFFFFF; border-color: {foreground}; }}"
+            f"QLabel:hover {{ background: #FFFFFF; border-color: {foreground}; }}"
         )
-        self.editingFinished.connect(self._commit_name)
 
     def _update_tooltip(self) -> None:
         self.setToolTip(
             f"{self.register_field.name}\nBits {self.register_field.start_bit}–"
-            f"{self.register_field.end_bit}\nClick to rename this field"
+            f"{self.register_field.end_bit}\nClick to select this field"
         )
-
-    def _commit_name(self) -> None:
-        new_name = self.text().strip()
-        old_name = self.register_field.name
-        if not new_name:
-            self.setText(old_name)
-            return
-        if new_name == old_name:
-            return
-        self.register_field.name = new_name
-        self.setText(new_name)
-        self._update_tooltip()
-        self.renamed.emit(self.register_field, old_name, new_name)
 
     def sync_from_model(self) -> None:
         self.setText(self.register_field.name)
@@ -223,13 +208,12 @@ class BitGrid(QWidget):
     """Eight bit circles and an aligned field map."""
 
     bitChanged = pyqtSignal(int, bool)
-    fieldNameChanged = pyqtSignal(object, str, str)
     fieldSelected = pyqtSignal(object)
 
     def __init__(self, register: RegisterByte) -> None:
         super().__init__()
         self.buttons: list[BitButton] = []
-        self.field_editors: list[tuple[RegisterField, FieldNameEditor]] = []
+        self.field_labels: list[tuple[RegisterField, FieldNameLabel]] = []
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(4)
@@ -257,11 +241,10 @@ class BitGrid(QWidget):
             register_field = field_by_start.get(position)
             if register_field:
                 width = register_field.width
-                field_editor = FieldNameEditor(register_field, color_index)
-                field_editor.renamed.connect(self.fieldNameChanged)
-                field_editor.selected.connect(self.fieldSelected)
-                self.field_editors.append((register_field, field_editor))
-                grid.addWidget(field_editor, 2, position, 1, width)
+                field_label = FieldNameLabel(register_field, color_index)
+                field_label.selected.connect(self.fieldSelected)
+                self.field_labels.append((register_field, field_label))
+                grid.addWidget(field_label, 2, position, 1, width)
                 color_index += 1
                 position += width
             else:
@@ -287,8 +270,8 @@ class BitGrid(QWidget):
             button.update()
 
     def sync_field_names(self) -> None:
-        for _, editor in self.field_editors:
-            editor.sync_from_model()
+        for _, label in self.field_labels:
+            label.sync_from_model()
 
 
 class RegisterRow(QFrame):
@@ -331,7 +314,6 @@ class RegisterRow(QFrame):
 
         self.bit_grid = BitGrid(register)
         self.bit_grid.bitChanged.connect(self._bit_changed)
-        self.bit_grid.fieldNameChanged.connect(self._field_name_changed)
         self.bit_grid.fieldSelected.connect(self._field_selected)
         layout.addWidget(self.bit_grid, 1)
 
@@ -434,6 +416,7 @@ class RegisterRow(QFrame):
         self.register.bits = list(self.register.original_bits)
         for register_field in self.register.fields:
             register_field.name = register_field.original_name
+            register_field.description = register_field.original_description
         self.bit_grid.set_bits(self.register.bits)
         self.bit_grid.sync_field_names()
         self._refresh_field_summary()
@@ -455,6 +438,7 @@ class RegisterRow(QFrame):
                 self.register.reg_name,
                 self.register.reg32_name,
                 *(item.name for item in self.register.fields),
+                *(item.description for item in self.register.fields),
             ]
         ).lower()
         return query in haystack

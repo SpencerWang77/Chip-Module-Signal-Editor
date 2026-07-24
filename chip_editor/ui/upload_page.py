@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -19,6 +20,7 @@ from ..constants import APP_NAME
 from ..models import WorkbookData
 from ..workbook_io import WorkbookFormatError, parse_register_workbook
 from .common import BrandMark, DropZone
+from .import_rules import ImportRulesCard
 
 
 class UploadPage(QWidget):
@@ -80,24 +82,8 @@ class UploadPage(QWidget):
         self.file_card.hide()
         content_layout.addWidget(self.file_card)
 
-        requirements = QFrame()
-        requirements.setObjectName("requirementsCard")
-        req_layout = QHBoxLayout(requirements)
-        req_layout.setContentsMargins(18, 15, 18, 15)
-        req_layout.setSpacing(14)
-        check = QLabel("✓")
-        check.setObjectName("checkBadge")
-        check.setAlignment(Qt.AlignCenter)
-        check.setFixedSize(28, 28)
-        req_layout.addWidget(check)
-        req_text = QLabel(
-            "Expected format  ·  Sheet “3.register”  ·  HEX_BYTE_ADDR  ·  REG_NAME  ·  "
-            "REG_FIELD spanning bits 7 → 0"
-        )
-        req_text.setObjectName("requirementText")
-        req_text.setWordWrap(True)
-        req_layout.addWidget(req_text, 1)
-        content_layout.addWidget(requirements)
+        self.import_rules = ImportRulesCard()
+        content_layout.addWidget(self.import_rules)
 
         sample_path = self.project_dir / "top_signal.xlsx"
         if sample_path.exists():
@@ -114,7 +100,13 @@ class UploadPage(QWidget):
             content_layout.addLayout(sample_row)
 
         body_layout.addWidget(content)
-        page.addWidget(body, 1)
+        body_scroll = QScrollArea()
+        body_scroll.setObjectName("uploadScroll")
+        body_scroll.setWidgetResizable(True)
+        body_scroll.setFrameShape(QFrame.NoFrame)
+        body_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        body_scroll.setWidget(body)
+        page.addWidget(body_scroll, 1)
 
     def _build_header(self) -> QWidget:
         header = QWidget()
@@ -195,9 +187,14 @@ class UploadPage(QWidget):
         first_addr = data.registers[0].hex_addr
         last_addr = data.registers[-1].hex_addr
         self.file_name.setText(data.source_path.name)
+        description_status = (
+            f"{data.described_field_count} descriptions from {data.description_sheet_name}"
+            if data.description_sheet_name
+            else "no AD_AA description sheet"
+        )
         self.file_meta.setText(
             f"{data.sheet_name}  ·  {len(data.registers)} bytes  ·  "
-            f"{first_addr}–{last_addr}  ·  format verified"
+            f"{first_addr}–{last_addr}  ·  {description_status}  ·  format verified"
         )
         self.file_card.show()
 

@@ -11,7 +11,11 @@ from typing import Optional
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 
-from .constants import BIT_COLUMN_COUNT, DESCRIPTION_SHEET, REGISTER_SHEET
+from .constants import (
+    BIT_COLUMN_COUNT,
+    DESCRIPTION_SHEET_KEYWORD,
+    REGISTER_SHEET_KEYWORD,
+)
 from .models import RegisterByte, RegisterField, WorkbookData
 
 
@@ -29,6 +33,7 @@ class _DescriptionRecord:
     signal_name: str
     normalized_suffix: str
     description: str
+    description_column: int
     addresses: tuple[str, ...]
 
 
@@ -38,6 +43,57 @@ class WorkbookFormatError(ValueError):
 
 def _cell_text(value: object) -> str:
     return "" if value is None else str(value).strip()
+
+
+def _matching_sheet_names(workbook, keyword: str) -> list[str]:
+    """Return worksheet names containing a keyword, ignoring letter case."""
+
+    normalized_keyword = keyword.casefold()
+    return [
+        name
+        for name in workbook.sheetnames
+        if normalized_keyword in name.casefold()
+    ]
+
+
+def _find_header(
+    worksheet,
+    required_headers: set[str],
+) -> tuple[Optional[int], dict[str, int]]:
+    """Find a table header within the first 40 rows, ignoring header case."""
+
+    for row_index in range(1, min(worksheet.max_row, 40) + 1):
+        found = {
+            _cell_text(worksheet.cell(row_index, column).value).upper(): column
+            for column in range(1, worksheet.max_column + 1)
+        }
+        if required_headers.issubset(found):
+            return row_index, found
+    return None, {}
+
+
+def _find_register_sheet(workbook):
+    """Choose the first correctly formatted sheet whose name contains register."""
+
+    candidate_names = _matching_sheet_names(workbook, REGISTER_SHEET_KEYWORD)
+    if not candidate_names:
+        raise WorkbookFormatError(
+            "The workbook needs a worksheet whose name contains “register” "
+            f"(case-insensitive). Found: {', '.join(workbook.sheetnames)}"
+        )
+
+    required_headers = {"HEX_BYTE_ADDR", "REG_NAME", "REG_FIELD"}
+    for name in candidate_names:
+        worksheet = workbook[name]
+        header_row, header_columns = _find_header(worksheet, required_headers)
+        if header_row is not None:
+            return worksheet, header_row, header_columns
+
+    raise WorkbookFormatError(
+        "Found a worksheet whose name contains “register”, but it is not readable. "
+        "It must include HEX_BYTE_ADDR, REG_NAME, and REG_FIELD headers within "
+        f"the first 40 rows. Checked: {', '.join(candidate_names)}"
+    )
 
 
 def _hex_address(value: object, decimal_fallback: object = None) -> str:
@@ -85,25 +141,32 @@ def _description_addresses(value: object) -> tuple[str, ...]:
 def _description_records(workbook) -> tuple[str, list[_DescriptionRecord]]:
     """Read the optional signal-description table without making it mandatory."""
 
-    if DESCRIPTION_SHEET not in workbook.sheetnames:
+    candidate_names = _matching_sheet_names(workbook, DESCRIPTION_SHEET_KEYWORD)
+    if not candidate_names:
         return "", []
 
-    worksheet = workbook[DESCRIPTION_SHEET]
+    required_headers = {"SIGNAL_NAME", "DESCRIPTION"}
+    worksheet = None
     header_row: Optional[int] = None
     header_columns: dict[str, int] = {}
-    required_headers = {"SIGNAL_NAME", "DESCRIPTION"}
-    for row_index in range(1, min(worksheet.max_row, 40) + 1):
-        found = {
-            _cell_text(worksheet.cell(row_index, column).value).upper(): column
-            for column in range(1, worksheet.max_column + 1)
-        }
-        if required_headers.issubset(found):
-            header_row = row_index
-            header_columns = found
+    for name in candidate_names:
+        candidate = workbook[name]
+        candidate_header_row, candidate_header_columns = _find_header(
+            candidate,
+            required_headers,
+        )
+        if candidate_header_row is not None:
+            worksheet = candidate
+            header_row = candidate_header_row
+            header_columns = candidate_header_columns
             break
 
-    if header_row is None:
-        return "", []
+    if worksheet is None or header_row is None:
+        raise WorkbookFormatError(
+            "Found a worksheet whose name contains “AD_AA”, but it is not readable. "
+            "It must include SIGNAL_NAME and DESCRIPTION headers within the first "
+            f"40 rows. Checked: {', '.join(candidate_names)}"
+        )
 
     signal_column = header_columns["SIGNAL_NAME"]
     description_column = header_columns["DESCRIPTION"]
@@ -126,10 +189,11 @@ def _description_records(workbook) -> tuple[str, list[_DescriptionRecord]]:
                 signal_name=signal_name,
                 normalized_suffix=normalized_suffix,
                 description=description,
+                description_column=description_column,
                 addresses=_description_addresses(address_value),
             )
         )
-    return DESCRIPTION_SHEET, records
+    return worksheet.title, records
 
 
 def _suffix_matches(field_target: str, description_suffix: str) -> bool:
@@ -214,31 +278,8 @@ def parse_register_workbook(path: Path) -> WorkbookData:
     except Exception as exc:
         raise WorkbookFormatError(f"This file could not be opened as an Excel workbook: {exc}") from exc
 
-    if REGISTER_SHEET not in workbook.sheetnames:
-        raise WorkbookFormatError(
-            f"Missing the required ‘{REGISTER_SHEET}’ sheet. Found: {', '.join(workbook.sheetnames)}"
-        )
-
+    worksheet, header_row, header_columns = _find_register_sheet(workbook)
     description_sheet_name, description_records = _description_records(workbook)
-    worksheet = workbook[REGISTER_SHEET]
-    required_headers = {"HEX_BYTE_ADDR", "REG_NAME", "REG_FIELD"}
-    header_row: Optional[int] = None
-    header_columns: dict[str, int] = {}
-
-    for row_index in range(1, min(worksheet.max_row, 40) + 1):
-        found = {
-            _cell_text(worksheet.cell(row_index, column).value): column
-            for column in range(1, worksheet.max_column + 1)
-        }
-        if required_headers.issubset(found):
-            header_row = row_index
-            header_columns = found
-            break
-
-    if header_row is None:
-        raise WorkbookFormatError(
-            "The register table needs HEX_BYTE_ADDR, REG_NAME, and REG_FIELD headers."
-        )
 
     bit_start = header_columns["REG_FIELD"]
     bit_end = bit_start + BIT_COLUMN_COUNT - 1
@@ -321,11 +362,20 @@ def parse_register_workbook(path: Path) -> WorkbookData:
                     description=(
                         description_record.description if description_record else ""
                     ),
+                    original_description=(
+                        description_record.description if description_record else ""
+                    ),
                     description_source_name=(
                         description_record.signal_name if description_record else ""
                     ),
+                    description_source_sheet=description_sheet_name,
                     description_source_row=(
                         description_record.worksheet_row if description_record else 0
+                    ),
+                    description_source_column=(
+                        description_record.description_column
+                        if description_record
+                        else 0
                     ),
                 )
             )
@@ -355,7 +405,7 @@ def parse_register_workbook(path: Path) -> WorkbookData:
 
     return WorkbookData(
         source_path=path,
-        sheet_name=REGISTER_SHEET,
+        sheet_name=worksheet.title,
         header_row=header_row,
         bit_start_column=bit_start,
         registers=registers,
@@ -364,7 +414,7 @@ def parse_register_workbook(path: Path) -> WorkbookData:
 
 
 def export_workbook(data: WorkbookData, destination: Path) -> None:
-    """Export a copy with edited field defaults and a byte-value column."""
+    """Export a copy with edited register fields and matched descriptions."""
 
     if data.source_path.resolve() == destination.resolve():
         raise ValueError("Choose a new file name so the source workbook remains unchanged.")
@@ -374,6 +424,7 @@ def export_workbook(data: WorkbookData, destination: Path) -> None:
     worksheet = workbook[data.sheet_name]
     output_column = max(worksheet.max_column + 1, data.bit_start_column + BIT_COLUMN_COUNT)
     worksheet.cell(data.header_row, output_column, "EDITED_HEX_VALUE")
+    description_updates: dict[tuple[str, int, int], str] = {}
 
     for register in data.registers:
         worksheet.cell(register.worksheet_row, output_column, f"0x{register.value:02X}")
@@ -383,7 +434,23 @@ def export_workbook(data: WorkbookData, destination: Path) -> None:
             segment = register.bits[display_start : display_end + 1]
             original_segment = register.original_bits[display_start : display_end + 1]
             segment_changed = tuple(segment) != tuple(original_segment)
-            name_changed = register_field.is_modified
+            name_changed = register_field.name != register_field.original_name
+            if register_field.description_is_modified:
+                description_key = (
+                    register_field.description_source_sheet,
+                    register_field.description_source_row,
+                    register_field.description_source_column,
+                )
+                if all(description_key):
+                    existing_update = description_updates.get(description_key)
+                    if (
+                        existing_update is not None
+                        and existing_update != register_field.description
+                    ):
+                        raise ValueError(
+                            "Conflicting edits target the same AD_AA description cell."
+                        )
+                    description_updates[description_key] = register_field.description
             if not segment_changed and not name_changed:
                 continue
             new_value = RegisterByte.value_from_bits(segment)
@@ -397,5 +464,8 @@ def export_workbook(data: WorkbookData, destination: Path) -> None:
                 register_field.start_column,
                 output_text,
             )
+
+    for (sheet_name, row, column), description in description_updates.items():
+        workbook[sheet_name].cell(row, column, description)
 
     workbook.save(destination)

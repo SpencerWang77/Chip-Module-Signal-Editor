@@ -45,7 +45,7 @@ class ChangeLogPanel(QFrame):
         layout.addLayout(header)
 
         self.empty_label = QLabel(
-            "Your bit toggles and field-name edits will appear here."
+            "Your bit, field-name, and description edits will appear here."
         )
         self.empty_label.setObjectName("logEmpty")
         self.empty_label.setWordWrap(True)

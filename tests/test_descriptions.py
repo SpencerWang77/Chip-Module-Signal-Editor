@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from openpyxl import load_workbook
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QLabel, QLineEdit
 
 from chip_editor.models import build_register_modules
 from chip_editor.ui.editor_page import EditorPage
@@ -51,6 +51,7 @@ class DescriptionParsingTests(unittest.TestCase):
     def test_renamed_field_is_exported_to_register_sheet(self) -> None:
         register, register_field = _field(self.data, "pll_inst_reg1")
         register_field.name = "pll_inst_vco_control"
+        register_field.description = "Updated PLL VCO control description."
         with tempfile.TemporaryDirectory() as temporary_directory:
             destination = Path(temporary_directory) / "edited.xlsx"
             export_workbook(self.data, destination)
@@ -60,6 +61,16 @@ class DescriptionParsingTests(unittest.TestCase):
                 register_field.start_column,
             )
             self.assertTrue(str(cell.value).startswith("pll_inst_vco_control"))
+            description_cell = workbook[
+                register_field.description_source_sheet
+            ].cell(
+                register_field.description_source_row,
+                register_field.description_source_column,
+            )
+            self.assertEqual(
+                description_cell.value,
+                "Updated PLL VCO control description.",
+            )
 
 
 class FieldDetailsUiTests(unittest.TestCase):
@@ -80,7 +91,10 @@ class FieldDetailsUiTests(unittest.TestCase):
         register, register_field = _field(data, "pll_inst_reg1")
 
         page.show_field_details(register, register_field)
-        self.assertIn("PLL-VCO", page.field_details.description.text())
+        self.assertIn(
+            "PLL-VCO",
+            page.field_details.description.toPlainText(),
+        )
         page.field_details.name_edit.setText("pll_inst_vco_control")
         page.field_details._request_rename()
 
@@ -88,9 +102,46 @@ class FieldDetailsUiTests(unittest.TestCase):
         self.assertEqual(page.change_log.count, 1)
         row = page.row_by_register_id[id(register)]
         inline_names = [
-            editor.text() for _, editor in row.bit_grid.field_editors
+            label.text() for _, label in row.bit_grid.field_labels
         ]
         self.assertIn("pll_inst_vco_control", inline_names)
+        self.assertTrue(
+            all(
+                isinstance(label, QLabel) and not isinstance(label, QLineEdit)
+                for _, label in row.bit_grid.field_labels
+            )
+        )
+
+        page.field_details.description.setPlainText(
+            "Updated from the selected field panel."
+        )
+        page.field_details._request_description_change()
+        self.assertEqual(
+            register_field.description,
+            "Updated from the selected field panel.",
+        )
+        self.assertEqual(page.change_log.count, 2)
+        page.deleteLater()
+
+    def test_shared_ad_aa_description_updates_every_matching_chunk(self) -> None:
+        data = parse_register_workbook(SAMPLE_WORKBOOK)
+        page = EditorPage()
+        page.load_data(data)
+        first_register, first_chunk = _field(data, "adc_inst_BOUTL_0")
+        _, second_chunk = _field(data, "adc_inst_BOUTL_1")
+
+        page.show_field_details(first_register, first_chunk)
+        page.field_details.description.setPlainText(
+            "Shared ADC output description."
+        )
+        page.field_details._request_description_change()
+
+        self.assertEqual(
+            first_chunk.description,
+            "Shared ADC output description.",
+        )
+        self.assertEqual(second_chunk.description, first_chunk.description)
+        self.assertEqual(page.change_log.count, 1)
         page.deleteLater()
 
 

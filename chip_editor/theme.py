@@ -6,9 +6,10 @@ STYLE_SHEET = """
     color: #17343D;
 }
 QMainWindow, QStackedWidget, #pageBody, #editorBody, #rowContainer,
-#moduleContainer, #editorContentStack {
+#moduleContainer, #editorContentStack, #uploadScroll {
     background: #F4F6F3;
 }
+#uploadScroll > QWidget > QWidget { background: #F4F6F3; }
 #topBar {
     background: #FFFFFF;
     border-bottom: 1px solid #DEE6E4;
@@ -100,6 +101,53 @@ QPushButton {
     background: #EEF2F0;
     border: 1px solid #DCE5E1;
     border-radius: 11px;
+}
+#rulesInfoButton {
+    color: #FFFFFF;
+    background: #168063;
+    border: 1px solid #168063;
+    border-radius: 15px;
+    font-family: "Georgia", serif;
+    font-size: 15px;
+    font-weight: 800;
+    padding: 0;
+}
+#rulesInfoButton:hover, #rulesInfoButton:focus {
+    color: #0F624E;
+    background: #D9F2E9;
+    border-color: #49B493;
+}
+#rulesTitle {
+    color: #173E48;
+    font-size: 12px;
+    font-weight: 750;
+}
+#rulesHoverHint {
+    color: #168063;
+    background: #DDF4EB;
+    border-radius: 7px;
+    padding: 4px 7px;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+}
+#rulesDetails {
+    border-top: 1px solid #D8E2DE;
+}
+#ruleColumn {
+    background: #FAFCFB;
+    border: 1px solid #DDE7E3;
+    border-radius: 9px;
+}
+#ruleCaption {
+    color: #168063;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+}
+#ruleText {
+    color: #536B71;
+    font-size: 10px;
 }
 #checkBadge, #successBadge {
     color: #117658;
@@ -405,6 +453,25 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     background: #EDF0EF;
     border-color: #DCE3E1;
 }
+#descriptionApply {
+    min-height: 29px;
+    padding: 0 11px;
+    color: #14785E;
+    background: #E4F6EF;
+    border: 1px solid #BEE4D7;
+    border-radius: 7px;
+    font-size: 10px;
+}
+#descriptionApply:hover {
+    color: #FFFFFF;
+    background: #168063;
+    border-color: #168063;
+}
+#descriptionApply:disabled {
+    color: #A0ADAF;
+    background: #EEF1F0;
+    border-color: #DFE5E3;
+}
 #fieldDetailsMetadata {
     color: #315E64;
     font-size: 10px;
@@ -423,6 +490,16 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     border-radius: 9px;
     padding: 12px 14px;
     font-size: 11px;
+    selection-background-color: #BCEBDB;
+}
+#fieldDescriptionText:focus {
+    background: #FFFFFF;
+    border: 1px solid #20B88A;
+}
+#fieldDescriptionText:disabled {
+    color: #849397;
+    background: #F1F4F2;
+    border-color: #E0E6E4;
 }
 QMessageBox { background: #F8FAF8; }
 """

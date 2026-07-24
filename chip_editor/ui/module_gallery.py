@@ -78,6 +78,11 @@ class ModuleCard(QFrame):
                     for register in self.module.registers
                     for register_field in register.fields
                 ),
+                *(
+                    register_field.description
+                    for register in self.module.registers
+                    for register_field in register.fields
+                ),
             ]
         ).lower()
         return query in searchable

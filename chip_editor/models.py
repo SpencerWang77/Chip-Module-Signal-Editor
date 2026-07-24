@@ -20,8 +20,11 @@ class RegisterField:
     end_bit: int
     default_value: int = 0
     description: str = ""
+    original_description: str = ""
     description_source_name: str = ""
+    description_source_sheet: str = ""
     description_source_row: int = 0
+    description_source_column: int = 0
 
     @property
     def width(self) -> int:
@@ -35,11 +38,22 @@ class RegisterField:
 
     @property
     def is_modified(self) -> bool:
-        return self.name != self.original_name
+        return (
+            self.name != self.original_name
+            or self.description != self.original_description
+        )
 
     @property
     def has_description(self) -> bool:
-        return bool(self.description)
+        return bool(
+            self.description_source_sheet
+            and self.description_source_row
+            and self.description_source_column
+        )
+
+    @property
+    def description_is_modified(self) -> bool:
+        return self.description != self.original_description
 
 
 @dataclass

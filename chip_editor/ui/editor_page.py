@@ -145,6 +145,9 @@ class EditorPage(QWidget):
         self.detail_layout.setSpacing(10)
         self.field_details = FieldDetailsPanel()
         self.field_details.renameRequested.connect(self.rename_selected_field)
+        self.field_details.descriptionChangeRequested.connect(
+            self.update_selected_description
+        )
         self.detail_layout.addWidget(self.field_details)
         self.detail_layout.addStretch()
         self.detail_scroll.setWidget(self.detail_container)
@@ -244,7 +247,7 @@ class EditorPage(QWidget):
             f"Four-byte module  ·  {module.start_address}–{module.end_address}"
         )
         self.overview_helper.setText(
-            "Toggle bits, then select a field label to read its description or rename it."
+            "Toggle bits, then select a field label to rename it or edit its description."
         )
         self.detail_scroll.verticalScrollBar().setValue(0)
         self.update_counts()
@@ -257,11 +260,6 @@ class EditorPage(QWidget):
 
     def on_row_changed(self, row: RegisterRow) -> None:
         self.module_gallery.refresh_cards()
-        if (
-            self.field_details.register is row.register
-            and self.field_details.register_field is not None
-        ):
-            self.field_details.refresh_from_model()
         self.update_counts()
         if self.current_module is None and self.changed_only.isChecked():
             self.apply_filters()
@@ -330,7 +328,49 @@ class EditorPage(QWidget):
         if row is None:
             return
         row.rename_field(register_field, new_name)
-        self.field_details.display(register, register_field)
+
+    def update_selected_description(
+        self,
+        register: RegisterByte,
+        register_field: RegisterField,
+        new_description: str,
+    ) -> None:
+        if self.data is None or new_description == register_field.description:
+            return
+        source_key = (
+            register_field.description_source_sheet,
+            register_field.description_source_row,
+            register_field.description_source_column,
+        )
+        if not all(source_key):
+            return
+
+        affected: list[tuple[RegisterByte, RegisterField]] = []
+        for candidate_register in self.data.registers:
+            for candidate_field in candidate_register.fields:
+                candidate_key = (
+                    candidate_field.description_source_sheet,
+                    candidate_field.description_source_row,
+                    candidate_field.description_source_column,
+                )
+                if candidate_key == source_key:
+                    candidate_field.description = new_description
+                    affected.append((candidate_register, candidate_field))
+
+        refreshed_register_ids: set[int] = set()
+        for affected_register, _ in affected:
+            if id(affected_register) in refreshed_register_ids:
+                continue
+            refreshed_register_ids.add(id(affected_register))
+            row = self.row_by_register_id.get(id(affected_register))
+            if row is not None:
+                row.refresh()
+                row.changed.emit(row)
+
+        self.change_log.add_entry(
+            f"{register.hex_addr} · {register_field.range_label}\n"
+            f"Updated description for {register_field.description_source_name}"
+        )
 
     def export(self) -> None:
         if self.data is None:
@@ -360,7 +400,8 @@ class EditorPage(QWidget):
                 self,
                 "Workbook exported",
                 f"Saved {Path(destination).name}\n\nEdited field names, field values, and "
-                "EDITED_HEX_VALUE were written to the copy.",
+                "matched AD_AA descriptions were written to the copy with "
+                "EDITED_HEX_VALUE.",
             )
         finally:
             QApplication.restoreOverrideCursor()
